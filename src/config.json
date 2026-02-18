@@ -1,0 +1,16 @@
+{
+  "dog_name": "Shelsi",
+  "medications": [
+    {
+      "name": "Phenobarbital",
+      "dose": "64.8 mg",
+      "schedule_key": "morning"
+    },
+    {
+      "name": "Phenobarbital",
+      "dose": "64.8 mg",
+      "schedule_key": "evening"
+    }
+  ],
+  "reminder_window_minutes": 15
+}
