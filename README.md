@@ -6,6 +6,7 @@ Serverless Telegram bot that sends medication reminders on a schedule, tracks co
 
 - Python 3.12+
 - Terraform 1.0+
+- [just](https://github.com/casey/just) command runner
 - AWS account with access credentials
 - Telegram bot token (from [@BotFather](https://t.me/BotFather))
 
@@ -14,47 +15,42 @@ Serverless Telegram bot that sends medication reminders on a schedule, tracks co
 ### 1. Install dev dependencies
 
 ```bash
-pip install -r requirements-dev.txt
+just install
 ```
 
 ### 2. Configure medication
 
-Edit `src/config.json` with your dog's name, medication, and dose.
+Edit `src/config.json` with your dog's name, medication, dose, notification hours, and timezone.
 
 ### 3. Run tests
 
 ```bash
-python -m pytest tests/
+just test
 ```
 
-### 4. Package Lambda functions
+### 4. Deploy
 
-Each Lambda ZIP must include its `handler.py` plus the `shared/` directory. Place the ZIPs at:
+Create a `.env` file with your credentials:
 
 ```
-dist/notifier.zip
-dist/reminder.zip
-dist/webhook.zip
+BOT_TOKEN=your-telegram-bot-token
+AWS_ACCESS_KEY_ID=your-access-key
+AWS_SECRET_ACCESS_KEY=your-secret-key
 ```
 
-### 5. Deploy infrastructure
+Then deploy:
 
 ```bash
-cd infra
-terraform init
-terraform apply \
-  -var="telegram_bot_token=YOUR_BOT_TOKEN" \
-  -var="aws_access_key=YOUR_ACCESS_KEY" \
-  -var="aws_secret_key=YOUR_SECRET_KEY"
+just deploy
 ```
 
-### 6. Register Telegram webhook
-
-After deploy, grab the webhook URL from Terraform output and register it:
+### 5. Register Telegram webhook
 
 ```bash
-curl "https://api.telegram.org/bot<YOUR_BOT_TOKEN>/setWebhook?url=<WEBHOOK_URL>"
+just register-webhook
 ```
+
+This registers the API Gateway URL and webhook secret with Telegram.
 
 ## Usage
 
@@ -65,4 +61,4 @@ Once deployed, interact with the bot on Telegram:
 - `/subscribe` — Subscribe to notifications
 - `/unsubscribe` — Stop receiving notifications
 
-The bot sends reminders at the configured morning and evening times, and follows up every 15 minutes until the dose is confirmed.
+The bot sends reminders at the configured notification hours and follows up every 15 minutes until the dose is confirmed.

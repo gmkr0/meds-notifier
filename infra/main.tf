@@ -259,15 +259,15 @@ resource "aws_iam_role_policy" "scheduler_invoke" {
 }
 
 # =============================================================================
-# EventBridge Schedules — Morning
+# EventBridge Schedules
 # =============================================================================
 
-resource "aws_scheduler_schedule" "morning_notifier" {
-  name       = "${local.prefix}-morning-notifier"
+resource "aws_scheduler_schedule" "notifier" {
+  name       = "${local.prefix}-notifier"
   group_name = "default"
 
-  schedule_expression          = var.morning_schedule_cron
-  schedule_expression_timezone = "EST"
+  schedule_expression          = var.notifier_schedule_cron
+  schedule_expression_timezone = var.schedule_timezone
 
   flexible_time_window {
     mode = "OFF"
@@ -277,9 +277,7 @@ resource "aws_scheduler_schedule" "morning_notifier" {
     arn      = module.lambda_notifier.function_arn
     role_arn = aws_iam_role.scheduler.arn
 
-    input = jsonencode({
-      schedule_key = "morning"
-    })
+    input = jsonencode({})
   }
 }
 
@@ -287,8 +285,8 @@ resource "aws_scheduler_schedule" "reminder" {
   name       = "${local.prefix}-reminder"
   group_name = "default"
 
-  schedule_expression          = "rate(${var.reminder_interval_minutes} minutes)"
-  schedule_expression_timezone = "EST"
+  schedule_expression          = "cron(1/${var.reminder_interval_minutes} * * * ? *)"
+  schedule_expression_timezone = var.schedule_timezone
 
   flexible_time_window {
     mode = "OFF"
@@ -299,31 +297,6 @@ resource "aws_scheduler_schedule" "reminder" {
     role_arn = aws_iam_role.scheduler.arn
 
     input = jsonencode({})
-  }
-}
-
-# =============================================================================
-# EventBridge Schedules — Evening
-# =============================================================================
-
-resource "aws_scheduler_schedule" "evening_notifier" {
-  name       = "${local.prefix}-evening-notifier"
-  group_name = "default"
-
-  schedule_expression          = var.evening_schedule_cron
-  schedule_expression_timezone = "EST"
-
-  flexible_time_window {
-    mode = "OFF"
-  }
-
-  target {
-    arn      = module.lambda_notifier.function_arn
-    role_arn = aws_iam_role.scheduler.arn
-
-    input = jsonencode({
-      schedule_key = "evening"
-    })
   }
 }
 

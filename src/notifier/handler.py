@@ -1,6 +1,8 @@
 import json
 import logging
 import os
+from datetime import datetime
+from zoneinfo import ZoneInfo
 
 from shared import dynamo, telegram
 
@@ -13,16 +15,13 @@ with open(os.path.join(_config_dir, "config.json")) as f:
 
 
 def lambda_handler(event, context):
-    schedule_key = event["schedule_key"]
     dog_name = CONFIG["dog_name"]
+    med = CONFIG["medication"]
 
-    meds = [m for m in CONFIG["medications"] if m["schedule_key"] == schedule_key]
-    if not meds:
-        logger.info("No medications for schedule_key=%s", schedule_key)
-        return {"statusCode": 200, "body": "no medications for this window"}
-
-    full_key = dynamo.build_schedule_key(schedule_key)
-    dynamo.put_pending_confirmation(full_key)
+    tz = ZoneInfo(CONFIG["timezone"])
+    now = datetime.now(tz)
+    key = dynamo.build_schedule_key(now.hour, now.date())
+    dynamo.put_pending_confirmation(key)
 
     subscribers = dynamo.get_all_subscribers()
     chat_ids = [int(s["chat_id"]["N"]) for s in subscribers]
@@ -31,12 +30,8 @@ def lambda_handler(event, context):
         logger.warning("No subscribers to notify")
         return {"statusCode": 200, "body": "no subscribers"}
 
-    for med in meds:
-        text = (
-            f"\U0001f48a Time to give {dog_name} their "
-            f"{med['name']} {med['dose']}!"
-        )
-        telegram.broadcast(chat_ids, text, reply_markup=telegram.DONE_BUTTON)
+    text = f"\U0001f48a Time to give {dog_name} his {med['name']}!"
+    telegram.broadcast(chat_ids, text, reply_markup=telegram.DONE_BUTTON)
 
-    logger.info("Notified %d subscribers for %s", len(chat_ids), full_key)
+    logger.info("Notified %d subscribers for %s", len(chat_ids), key)
     return {"statusCode": 200, "body": f"notified {len(chat_ids)} subscribers"}

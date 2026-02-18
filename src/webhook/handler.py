@@ -1,7 +1,6 @@
 import json
 import logging
 import os
-from datetime import date, timedelta
 
 from shared import dynamo, telegram
 
@@ -13,26 +12,6 @@ OK_RESPONSE = {"statusCode": 200, "body": "ok"}
 FORBIDDEN_RESPONSE = {"statusCode": 403, "body": "forbidden"}
 
 _webhook_secret = os.environ.get("WEBHOOK_SECRET")
-
-
-def _find_pending_schedule_key():
-    """Find the most recent unconfirmed schedule key by checking DynamoDB.
-
-    Checks in order: today evening, today morning, yesterday evening.
-    Returns the first unconfirmed key found, or None.
-    """
-    today = date.today()
-    yesterday = today - timedelta(days=1)
-    candidates = [
-        dynamo.build_schedule_key("evening", today),
-        dynamo.build_schedule_key("morning", today),
-        dynamo.build_schedule_key("evening", yesterday),
-    ]
-    for key in candidates:
-        item = dynamo.get_confirmation(key)
-        if item is not None and not item["confirmed"]["BOOL"]:
-            return key
-    return None
 
 
 def _parse_update(event):
@@ -61,12 +40,13 @@ def _parse_update(event):
 
 
 def _handle_done(chat_id, name):
-    key = _find_pending_schedule_key()
-    if key is None:
+    pending = dynamo.get_pending_confirmations()
+    if not pending:
         telegram.send_message(chat_id, "No pending medication to confirm right now.")
         return
 
-    dynamo.mark_confirmed(key, chat_id)
+    for key in pending:
+        dynamo.mark_confirmed(key, chat_id)
 
     subscribers = dynamo.get_all_subscribers()
     chat_ids = [int(s["chat_id"]["N"]) for s in subscribers]

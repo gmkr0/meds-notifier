@@ -47,7 +47,7 @@ class TestWebhookDone:
         """'/done' confirms and broadcasts to all subscribers."""
         dynamo.add_subscriber(111, "Test User")
         dynamo.add_subscriber(222, "Other User")
-        key = dynamo.build_schedule_key("morning")
+        key = dynamo.build_schedule_key(11)
         dynamo.put_pending_confirmation(key)
         event = _make_event(111, "/done")
 
@@ -69,7 +69,7 @@ class TestWebhookDone:
     def test_administered_also_works(self, aws):
         """'/administered' is an alias for /done."""
         dynamo.add_subscriber(222, "Someone")
-        key = dynamo.build_schedule_key("evening")
+        key = dynamo.build_schedule_key(23)
         dynamo.put_pending_confirmation(key)
         event = _make_event(222, "/administered")
 
@@ -82,6 +82,25 @@ class TestWebhookDone:
         assert result["statusCode"] == 200
         item = dynamo.get_confirmation(key)
         assert item["confirmed"]["BOOL"] is True
+
+    def test_done_confirms_all_pending(self, aws):
+        """'/done' confirms all pending doses at once."""
+        dynamo.add_subscriber(111, "Test User")
+        key1 = dynamo.build_schedule_key(11)
+        key2 = dynamo.build_schedule_key(23)
+        dynamo.put_pending_confirmation(key1)
+        dynamo.put_pending_confirmation(key2)
+        event = _make_event(111, "/done")
+
+        with patch("shared.telegram.send_message") as mock_send:
+            mock_send.return_value = True
+            from src.webhook.handler import lambda_handler
+
+            result = lambda_handler(event, None)
+
+        assert result["statusCode"] == 200
+        assert dynamo.get_confirmation(key1)["confirmed"]["BOOL"] is True
+        assert dynamo.get_confirmation(key2)["confirmed"]["BOOL"] is True
 
     def test_done_no_pending(self, aws):
         """'/done' with nothing pending sends helpful message."""
@@ -153,7 +172,7 @@ class TestWebhookCallbackButton:
     def test_done_button_confirms_pending(self, aws):
         """Tapping the 'Done' inline button confirms the pending schedule key."""
         dynamo.add_subscriber(111, "Test User")
-        key = dynamo.build_schedule_key("morning")
+        key = dynamo.build_schedule_key(11)
         dynamo.put_pending_confirmation(key)
         event = _make_callback_event(111, "done")
 
@@ -222,7 +241,7 @@ class TestWebhookEdgeCases:
     def test_done_with_bot_suffix(self, aws):
         """'/done@MyBot' is handled the same as '/done'."""
         dynamo.add_subscriber(111, "Test User")
-        key = dynamo.build_schedule_key("morning")
+        key = dynamo.build_schedule_key(11)
         dynamo.put_pending_confirmation(key)
         event = _make_event(111, "/done@MedReminderBot")
 

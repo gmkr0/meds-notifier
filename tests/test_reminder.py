@@ -8,7 +8,7 @@ class TestReminderHandler:
     def test_pending_confirmation_sends_reminder(self, aws):
         """Reminder sends alert when a confirmation is pending."""
         dynamo.add_subscriber(222, "Bob")
-        key = dynamo.build_schedule_key("morning")
+        key = dynamo.build_schedule_key(11)
         dynamo.put_pending_confirmation(key)
 
         with patch("shared.telegram.send_message") as mock_send:
@@ -25,7 +25,7 @@ class TestReminderHandler:
 
     def test_already_confirmed_no_reminder(self, aws):
         """Reminder is a no-op when already confirmed."""
-        key = dynamo.build_schedule_key("evening")
+        key = dynamo.build_schedule_key(23)
         dynamo.put_pending_confirmation(key)
         dynamo.mark_confirmed(key, 222)
 
@@ -49,13 +49,13 @@ class TestReminderHandler:
         assert "nothing pending" in result["body"]
         mock_send.assert_not_called()
 
-    def test_multiple_pending_windows(self, aws):
-        """Reminder sends for each pending window."""
+    def test_multiple_pending_doses(self, aws):
+        """Reminder sends for each pending dose."""
         dynamo.add_subscriber(333, "Carol")
-        morning_key = dynamo.build_schedule_key("morning")
-        evening_key = dynamo.build_schedule_key("evening")
-        dynamo.put_pending_confirmation(morning_key)
-        dynamo.put_pending_confirmation(evening_key)
+        key1 = dynamo.build_schedule_key(11)
+        key2 = dynamo.build_schedule_key(23)
+        dynamo.put_pending_confirmation(key1)
+        dynamo.put_pending_confirmation(key2)
 
         with patch("shared.telegram.send_message") as mock_send:
             mock_send.return_value = True
@@ -71,7 +71,7 @@ class TestReminderHandler:
         """Reminder catches unconfirmed records from yesterday."""
         dynamo.add_subscriber(444, "Dave")
         yesterday = date.today() - timedelta(days=1)
-        key = dynamo.build_schedule_key("evening", yesterday)
+        key = dynamo.build_schedule_key(23, yesterday)
         dynamo.put_pending_confirmation(key)
 
         with patch("shared.telegram.send_message") as mock_send:

@@ -25,11 +25,11 @@ def _subscribers_table():
     return os.environ["TABLE_SUBSCRIBERS"]
 
 
-def build_schedule_key(schedule_key, d=None):
-    """Build a date-scoped key like '2024-01-15_morning'."""
+def build_schedule_key(hour, d=None):
+    """Build a date-scoped key like '2024-01-15_11'."""
     if d is None:
         d = date.today()
-    return f"{d.isoformat()}_{schedule_key}"
+    return f"{d.isoformat()}_{hour}"
 
 
 def put_pending_confirmation(schedule_key):
@@ -66,6 +66,16 @@ def mark_confirmed(schedule_key, chat_id):
             ":ca": {"N": str(int(time.time()))},
         },
     )
+
+
+def get_pending_confirmations():
+    """Scan for all unconfirmed records. Returns list of schedule_key strings."""
+    resp = _get_client().scan(
+        TableName=_confirmations_table(),
+        FilterExpression="confirmed = :f",
+        ExpressionAttributeValues={":f": {"BOOL": False}},
+    )
+    return [item["schedule_key"]["S"] for item in resp.get("Items", [])]
 
 
 def get_all_subscribers():

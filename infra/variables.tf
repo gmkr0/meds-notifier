@@ -1,13 +1,13 @@
-variable "morning_schedule_cron" {
-  description = "Cron expression for morning medication notification"
+variable "notifier_schedule_cron" {
+  description = "Cron expression for medication notifications (e.g. morning + evening)"
   type        = string
-  default     = "cron(0 11 * * ? *)"
+  default     = "cron(0 11,23 * * ? *)"
 }
 
-variable "evening_schedule_cron" {
-  description = "Cron expression for evening medication notification"
+variable "schedule_timezone" {
+  description = "IANA timezone for all schedules"
   type        = string
-  default     = "cron(0 23 * * ? *)"
+  default     = "America/New_York"
 }
 
 variable "reminder_interval_minutes" {
