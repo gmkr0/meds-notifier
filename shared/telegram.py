@@ -11,6 +11,10 @@ logger = logging.getLogger(__name__)
 _bot_token = None
 _ssm_client = None
 
+DONE_BUTTON = {
+    "inline_keyboard": [[{"text": "Done \u2705", "callback_data": "done"}]]
+}
+
 
 def _get_ssm_client():
     global _ssm_client
@@ -35,11 +39,14 @@ def get_bot_token():
     return _bot_token
 
 
-def send_message(chat_id, text):
+def send_message(chat_id, text, reply_markup=None):
     """Send a message to a single Telegram chat. Returns True on success."""
     token = get_bot_token()
     url = f"https://api.telegram.org/bot{token}/sendMessage"
-    payload = json.dumps({"chat_id": chat_id, "text": text}).encode("utf-8")
+    body = {"chat_id": chat_id, "text": text}
+    if reply_markup is not None:
+        body["reply_markup"] = reply_markup
+    payload = json.dumps(body).encode("utf-8")
     req = urllib.request.Request(
         url, data=payload, headers={"Content-Type": "application/json"}
     )
@@ -51,9 +58,28 @@ def send_message(chat_id, text):
         return False
 
 
-def broadcast(chat_ids, text):
+def answer_callback_query(callback_query_id, text=None):
+    """Acknowledge a callback query (inline button press)."""
+    token = get_bot_token()
+    url = f"https://api.telegram.org/bot{token}/answerCallbackQuery"
+    body = {"callback_query_id": callback_query_id}
+    if text:
+        body["text"] = text
+    payload = json.dumps(body).encode("utf-8")
+    req = urllib.request.Request(
+        url, data=payload, headers={"Content-Type": "application/json"}
+    )
+    try:
+        with urllib.request.urlopen(req, timeout=10) as resp:
+            return resp.status == 200
+    except (urllib.error.URLError, urllib.error.HTTPError) as exc:
+        logger.error("Failed to answer callback query: %s", exc)
+        return False
+
+
+def broadcast(chat_ids, text, reply_markup=None):
     """Send a message to multiple subscribers. Logs failures individually."""
     for chat_id in chat_ids:
-        ok = send_message(chat_id, text)
+        ok = send_message(chat_id, text, reply_markup=reply_markup)
         if not ok:
             logger.warning("Broadcast failed for chat_id=%s", chat_id)

@@ -20,6 +20,23 @@ def _make_event(chat_id, text, first_name="Test", last_name="User"):
     }
 
 
+def _make_callback_event(chat_id, data, callback_query_id="cb-123",
+                          first_name="Test", last_name="User"):
+    """Build an API Gateway v2 event with a Telegram callback query (button press)."""
+    return {
+        "body": json.dumps(
+            {
+                "callback_query": {
+                    "id": callback_query_id,
+                    "data": data,
+                    "message": {"chat": {"id": chat_id}},
+                    "from": {"first_name": first_name, "last_name": last_name},
+                }
+            }
+        )
+    }
+
+
 class TestWebhookDone:
     def test_done_confirms_and_broadcasts(self, aws):
         """'/done' confirms and broadcasts to all subscribers."""
@@ -125,6 +142,47 @@ class TestWebhookStart:
         assert len(subs) == 1
         msg = mock_send.call_args[0][1]
         assert "Welcome" in msg
+
+
+class TestWebhookCallbackButton:
+    def test_done_button_confirms_pending(self, aws):
+        """Tapping the 'Done' inline button confirms the pending schedule key."""
+        dynamo.add_subscriber(111, "Test User")
+        key = dynamo.build_schedule_key("morning")
+        dynamo.put_pending_confirmation(key)
+        event = _make_callback_event(111, "done")
+
+        with patch("shared.telegram.send_message") as mock_send, \
+             patch("shared.telegram.answer_callback_query") as mock_answer:
+            mock_send.return_value = True
+            mock_answer.return_value = True
+            from src.webhook.handler import lambda_handler
+
+            result = lambda_handler(event, None)
+
+        assert result["statusCode"] == 200
+        item = dynamo.get_confirmation(key)
+        assert item["confirmed"]["BOOL"] is True
+        mock_answer.assert_called_once_with("cb-123")
+        mock_send.assert_called_once()
+        assert "Test User" in mock_send.call_args[0][1]
+
+    def test_done_button_no_pending(self, aws):
+        """Tapping 'Done' with nothing pending sends helpful message and acknowledges."""
+        event = _make_callback_event(111, "done")
+
+        with patch("shared.telegram.send_message") as mock_send, \
+             patch("shared.telegram.answer_callback_query") as mock_answer:
+            mock_send.return_value = True
+            mock_answer.return_value = True
+            from src.webhook.handler import lambda_handler
+
+            result = lambda_handler(event, None)
+
+        assert result["statusCode"] == 200
+        mock_send.assert_called_once()
+        assert "No pending" in mock_send.call_args[0][1]
+        mock_answer.assert_called_once()
 
 
 class TestWebhookEdgeCases:

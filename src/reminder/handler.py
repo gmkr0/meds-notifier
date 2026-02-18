@@ -51,7 +51,7 @@ def lambda_handler(event, context):
             f"\u26a0\ufe0f Reminder: {dog_name}'s {med_names} "
             f"has not been confirmed yet!"
         )
-        telegram.broadcast(chat_ids, text)
+        telegram.broadcast(chat_ids, text, reply_markup=telegram.DONE_BUTTON)
         logger.info("Sent reminder to %d subscribers for %s", len(chat_ids), key)
 
     return {"statusCode": 200, "body": f"reminded for {len(pending)} pending window(s)"}

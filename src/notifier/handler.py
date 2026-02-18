@@ -34,9 +34,9 @@ def lambda_handler(event, context):
     for med in meds:
         text = (
             f"\U0001f48a Time to give {dog_name} their "
-            f"{med['name']} {med['dose']}! Reply /done to confirm."
+            f"{med['name']} {med['dose']}!"
         )
-        telegram.broadcast(chat_ids, text)
+        telegram.broadcast(chat_ids, text, reply_markup=telegram.DONE_BUTTON)
 
     logger.info("Notified %d subscribers for %s", len(chat_ids), full_key)
     return {"statusCode": 200, "body": f"notified {len(chat_ids)} subscribers"}

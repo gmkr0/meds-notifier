@@ -31,16 +31,29 @@ def _find_pending_schedule_key():
     return None
 
 
-def _parse_message(event):
-    """Extract chat_id, text, and sender name from an API Gateway v2 event."""
+def _parse_update(event):
+    """Parse an API Gateway v2 event into chat_id, text, name, and callback_query_id.
+
+    Handles both regular messages and inline button callback queries.
+    """
     body = json.loads(event.get("body", "{}"))
+
+    callback = body.get("callback_query")
+    if callback:
+        chat_id = callback.get("message", {}).get("chat", {}).get("id")
+        data = callback.get("data", "")
+        first = callback.get("from", {}).get("first_name", "")
+        last = callback.get("from", {}).get("last_name", "")
+        name = f"{first} {last}".strip() or "Unknown"
+        return chat_id, data, name, callback.get("id")
+
     message = body.get("message", {})
     chat_id = message.get("chat", {}).get("id")
     text = (message.get("text") or "").strip()
     first = message.get("from", {}).get("first_name", "")
     last = message.get("from", {}).get("last_name", "")
     name = f"{first} {last}".strip() or "Unknown"
-    return chat_id, text, name
+    return chat_id, text, name, None
 
 
 def _handle_done(chat_id, name):
@@ -53,7 +66,7 @@ def _handle_done(chat_id, name):
 
     subscribers = dynamo.get_all_subscribers()
     chat_ids = [int(s["chat_id"]["N"]) for s in subscribers]
-    telegram.broadcast(chat_ids, f"{name} confirmed {key} \u2705")
+    telegram.broadcast(chat_ids, f"{name} confirmed the medication! \u2705")
 
 
 def _handle_subscribe(chat_id, name):
@@ -79,9 +92,16 @@ def _handle_start(chat_id, name):
 
 
 def lambda_handler(event, context):
-    chat_id, text, name = _parse_message(event)
+    chat_id, text, name, callback_query_id = _parse_update(event)
     if chat_id is None:
         logger.warning("No chat_id in event: %s", json.dumps(event))
+        return OK_RESPONSE
+
+    # Handle inline button callback
+    if callback_query_id:
+        if text == "done":
+            _handle_done(chat_id, name)
+        telegram.answer_callback_query(callback_query_id)
         return OK_RESPONSE
 
     command = text.split()[0].lower() if text else ""
