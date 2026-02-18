@@ -1,6 +1,7 @@
 import json
 import logging
 import os
+from datetime import date, timedelta
 
 from shared import dynamo, telegram
 
@@ -11,23 +12,30 @@ _config_dir = os.environ.get("CONFIG_PATH", os.path.dirname(__file__))
 with open(os.path.join(_config_dir, "config.json")) as f:
     CONFIG = json.load(f)
 
+SCHEDULE_WINDOWS = ["morning", "evening"]
+
+
+def _find_pending_keys():
+    """Find all unconfirmed schedule keys, checking today and yesterday."""
+    today = date.today()
+    yesterday = today - timedelta(days=1)
+    pending = []
+    for window in SCHEDULE_WINDOWS:
+        for d in (today, yesterday):
+            key = dynamo.build_schedule_key(window, d)
+            item = dynamo.get_confirmation(key)
+            if item is not None and not item["confirmed"]["BOOL"]:
+                pending.append((key, window))
+    return pending
+
 
 def lambda_handler(event, context):
-    schedule_key = event["schedule_key"]
     dog_name = CONFIG["dog_name"]
-    full_key = dynamo.build_schedule_key(schedule_key)
+    pending = _find_pending_keys()
 
-    item = dynamo.get_confirmation(full_key)
-    if item is None:
-        logger.info("No confirmation record for %s — skipping", full_key)
-        return {"statusCode": 200, "body": "no record"}
-
-    if item["confirmed"]["BOOL"]:
-        logger.info("Already confirmed for %s", full_key)
-        return {"statusCode": 200, "body": "already confirmed"}
-
-    meds = [m for m in CONFIG["medications"] if m["schedule_key"] == schedule_key]
-    med_names = ", ".join(f"{m['name']} {m['dose']}" for m in meds) if meds else "medication"
+    if not pending:
+        logger.info("No pending confirmations — nothing to remind")
+        return {"statusCode": 200, "body": "nothing pending"}
 
     subscribers = dynamo.get_all_subscribers()
     chat_ids = [int(s["chat_id"]["N"]) for s in subscribers]
@@ -36,11 +44,14 @@ def lambda_handler(event, context):
         logger.warning("No subscribers for reminder")
         return {"statusCode": 200, "body": "no subscribers"}
 
-    text = (
-        f"\u26a0\ufe0f Reminder: {dog_name}'s {med_names} "
-        f"has not been confirmed yet!"
-    )
-    telegram.broadcast(chat_ids, text)
+    for key, window in pending:
+        meds = [m for m in CONFIG["medications"] if m["schedule_key"] == window]
+        med_names = ", ".join(f"{m['name']} {m['dose']}" for m in meds) if meds else "medication"
+        text = (
+            f"\u26a0\ufe0f Reminder: {dog_name}'s {med_names} "
+            f"has not been confirmed yet!"
+        )
+        telegram.broadcast(chat_ids, text)
+        logger.info("Sent reminder to %d subscribers for %s", len(chat_ids), key)
 
-    logger.info("Sent reminder to %d subscribers for %s", len(chat_ids), full_key)
-    return {"statusCode": 200, "body": f"reminded {len(chat_ids)} subscribers"}
+    return {"statusCode": 200, "body": f"reminded for {len(pending)} pending window(s)"}

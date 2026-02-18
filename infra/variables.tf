@@ -10,16 +10,10 @@ variable "evening_schedule_cron" {
   default     = "cron(0 23 * * ? *)"
 }
 
-variable "morning_reminder_cron" {
-  description = "Cron expression for morning reminder (typically 15 min after morning_schedule_cron)"
-  type        = string
-  default     = "cron(15 11 * * ? *)"
-}
-
-variable "evening_reminder_cron" {
-  description = "Cron expression for evening reminder (typically 15 min after evening_schedule_cron)"
-  type        = string
-  default     = "cron(15 23 * * ? *)"
+variable "reminder_interval_minutes" {
+  description = "How often (in minutes) to check for unconfirmed medications and send reminders"
+  type        = number
+  default     = 15
 }
 
 variable "aws_region" {

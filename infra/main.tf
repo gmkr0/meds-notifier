@@ -263,11 +263,11 @@ resource "aws_scheduler_schedule" "morning_notifier" {
   }
 }
 
-resource "aws_scheduler_schedule" "morning_reminder" {
-  name       = "${local.prefix}-morning-reminder"
+resource "aws_scheduler_schedule" "reminder" {
+  name       = "${local.prefix}-reminder"
   group_name = "default"
 
-  schedule_expression          = var.morning_reminder_cron
+  schedule_expression          = "rate(${var.reminder_interval_minutes} minutes)"
   schedule_expression_timezone = "UTC"
 
   flexible_time_window {
@@ -278,9 +278,7 @@ resource "aws_scheduler_schedule" "morning_reminder" {
     arn      = module.lambda_reminder.function_arn
     role_arn = aws_iam_role.scheduler.arn
 
-    input = jsonencode({
-      schedule_key = "morning"
-    })
+    input = jsonencode({})
   }
 }
 
@@ -309,23 +307,3 @@ resource "aws_scheduler_schedule" "evening_notifier" {
   }
 }
 
-resource "aws_scheduler_schedule" "evening_reminder" {
-  name       = "${local.prefix}-evening-reminder"
-  group_name = "default"
-
-  schedule_expression          = var.evening_reminder_cron
-  schedule_expression_timezone = "UTC"
-
-  flexible_time_window {
-    mode = "OFF"
-  }
-
-  target {
-    arn      = module.lambda_reminder.function_arn
-    role_arn = aws_iam_role.scheduler.arn
-
-    input = jsonencode({
-      schedule_key = "evening"
-    })
-  }
-}
