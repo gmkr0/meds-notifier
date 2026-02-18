@@ -6,6 +6,10 @@ terraform {
       source  = "hashicorp/aws"
       version = "~> 5.0"
     }
+    random = {
+      source  = "hashicorp/random"
+      version = "~> 3.0"
+    }
   }
 }
 
@@ -32,6 +36,15 @@ locals {
     SSM_BOT_TOKEN_PARAM  = aws_ssm_parameter.bot_token.name
     ENVIRONMENT          = var.environment
   }
+}
+
+# =============================================================================
+# Webhook Secret — auto-generated for Telegram secret_token validation
+# =============================================================================
+
+resource "random_password" "webhook_secret" {
+  length  = 64
+  special = false
 }
 
 # =============================================================================
@@ -159,7 +172,9 @@ module "lambda_webhook" {
   source_path   = "${path.module}/../dist/webhook.zip"
   timeout       = 10
 
-  environment_variables = local.lambda_env_common
+  environment_variables = merge(local.lambda_env_common, {
+    WEBHOOK_SECRET = random_password.webhook_secret.result
+  })
 
   policy_arns = [aws_iam_policy.lambda_shared.arn]
 }
@@ -191,6 +206,11 @@ resource "aws_apigatewayv2_stage" "webhook" {
   api_id      = aws_apigatewayv2_api.webhook.id
   name        = var.environment
   auto_deploy = true
+
+  default_route_settings {
+    throttling_burst_limit = 10
+    throttling_rate_limit  = 5
+  }
 }
 
 resource "aws_lambda_permission" "apigw_webhook" {
@@ -247,7 +267,7 @@ resource "aws_scheduler_schedule" "morning_notifier" {
   group_name = "default"
 
   schedule_expression          = var.morning_schedule_cron
-  schedule_expression_timezone = "UTC"
+  schedule_expression_timezone = "EST"
 
   flexible_time_window {
     mode = "OFF"
@@ -268,7 +288,7 @@ resource "aws_scheduler_schedule" "reminder" {
   group_name = "default"
 
   schedule_expression          = "rate(${var.reminder_interval_minutes} minutes)"
-  schedule_expression_timezone = "UTC"
+  schedule_expression_timezone = "EST"
 
   flexible_time_window {
     mode = "OFF"
@@ -291,7 +311,7 @@ resource "aws_scheduler_schedule" "evening_notifier" {
   group_name = "default"
 
   schedule_expression          = var.evening_schedule_cron
-  schedule_expression_timezone = "UTC"
+  schedule_expression_timezone = "EST"
 
   flexible_time_window {
     mode = "OFF"

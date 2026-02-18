@@ -13,6 +13,7 @@ os.environ.setdefault("AWS_SECRET_ACCESS_KEY", "testing")
 os.environ.setdefault("AWS_SECURITY_TOKEN", "testing")
 os.environ.setdefault("AWS_SESSION_TOKEN", "testing")
 os.environ.setdefault("CONFIG_PATH", "src")
+os.environ.setdefault("WEBHOOK_SECRET", "test-webhook-secret")
 
 
 @pytest.fixture(autouse=True)
@@ -24,6 +25,9 @@ def _reset_shared_caches():
     tg._bot_token = None
     tg._ssm_client = None
     db._client = None
+
+    import src.webhook.handler as wh
+    wh._webhook_secret = os.environ.get("WEBHOOK_SECRET")
     yield
 
 

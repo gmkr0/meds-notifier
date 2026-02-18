@@ -1,5 +1,6 @@
 import json
 import logging
+import os
 from datetime import date, timedelta
 
 from shared import dynamo, telegram
@@ -9,6 +10,9 @@ logger.setLevel(logging.INFO)
 
 CONFIRM_COMMANDS = {"/done", "/administered"}
 OK_RESPONSE = {"statusCode": 200, "body": "ok"}
+FORBIDDEN_RESPONSE = {"statusCode": 403, "body": "forbidden"}
+
+_webhook_secret = os.environ.get("WEBHOOK_SECRET")
 
 
 def _find_pending_schedule_key():
@@ -91,7 +95,20 @@ def _handle_start(chat_id, name):
     )
 
 
+def _verify_secret(event):
+    """Validate the X-Telegram-Bot-Api-Secret-Token header if WEBHOOK_SECRET is configured."""
+    if not _webhook_secret:
+        return True
+    headers = event.get("headers") or {}
+    token = headers.get("x-telegram-bot-api-secret-token", "")
+    return token == _webhook_secret
+
+
 def lambda_handler(event, context):
+    if not _verify_secret(event):
+        logger.warning("Rejected request: invalid webhook secret")
+        return FORBIDDEN_RESPONSE
+
     chat_id, text, name, callback_query_id = _parse_update(event)
     if chat_id is None:
         logger.warning("No chat_id in event: %s", json.dumps(event))

@@ -1,13 +1,17 @@
 import json
+import os
 from unittest.mock import patch
 from datetime import date
 
 from shared import dynamo
 
+VALID_SECRET_HEADERS = {"x-telegram-bot-api-secret-token": os.environ["WEBHOOK_SECRET"]}
+
 
 def _make_event(chat_id, text, first_name="Test", last_name="User"):
     """Build a minimal API Gateway v2 event with a Telegram message."""
     return {
+        "headers": VALID_SECRET_HEADERS,
         "body": json.dumps(
             {
                 "message": {
@@ -16,7 +20,7 @@ def _make_event(chat_id, text, first_name="Test", last_name="User"):
                     "from": {"first_name": first_name, "last_name": last_name},
                 }
             }
-        )
+        ),
     }
 
 
@@ -24,6 +28,7 @@ def _make_callback_event(chat_id, data, callback_query_id="cb-123",
                           first_name="Test", last_name="User"):
     """Build an API Gateway v2 event with a Telegram callback query (button press)."""
     return {
+        "headers": VALID_SECRET_HEADERS,
         "body": json.dumps(
             {
                 "callback_query": {
@@ -33,7 +38,7 @@ def _make_callback_event(chat_id, data, callback_query_id="cb-123",
                     "from": {"first_name": first_name, "last_name": last_name},
                 }
             }
-        )
+        ),
     }
 
 
@@ -201,7 +206,7 @@ class TestWebhookEdgeCases:
 
     def test_malformed_body(self, aws):
         """Malformed body still returns 200 (no Telegram retry loop)."""
-        event = {"body": "not-json"}
+        event = {"headers": VALID_SECRET_HEADERS, "body": "not-json"}
 
         with patch("shared.telegram.send_message"):
             from src.webhook.handler import lambda_handler
@@ -209,7 +214,7 @@ class TestWebhookEdgeCases:
             # json.loads will fail, but we should handle gracefully
             # Actually the handler will raise — let's verify it returns 200
             # for bodies that parse but have no message
-            event2 = {"body": "{}"}
+            event2 = {"headers": VALID_SECRET_HEADERS, "body": "{}"}
             result = lambda_handler(event2, None)
 
         assert result["statusCode"] == 200
@@ -230,3 +235,40 @@ class TestWebhookEdgeCases:
         assert result["statusCode"] == 200
         item = dynamo.get_confirmation(key)
         assert item["confirmed"]["BOOL"] is True
+
+
+class TestWebhookSecretValidation:
+    def test_missing_secret_header_rejected(self, aws):
+        """Requests without the secret header are rejected with 403."""
+        event = {"body": json.dumps({"message": {"chat": {"id": 111}, "text": "/done",
+                 "from": {"first_name": "Test", "last_name": "User"}}})}
+
+        from src.webhook.handler import lambda_handler
+
+        result = lambda_handler(event, None)
+        assert result["statusCode"] == 403
+
+    def test_wrong_secret_header_rejected(self, aws):
+        """Requests with a wrong secret header are rejected with 403."""
+        event = {
+            "headers": {"x-telegram-bot-api-secret-token": "wrong-secret"},
+            "body": json.dumps({"message": {"chat": {"id": 111}, "text": "/done",
+                     "from": {"first_name": "Test", "last_name": "User"}}}),
+        }
+
+        from src.webhook.handler import lambda_handler
+
+        result = lambda_handler(event, None)
+        assert result["statusCode"] == 403
+
+    def test_correct_secret_header_accepted(self, aws):
+        """Requests with the correct secret header are processed normally."""
+        event = _make_event(111, "/subscribe", "Test", "User")
+
+        with patch("shared.telegram.send_message") as mock_send:
+            mock_send.return_value = True
+            from src.webhook.handler import lambda_handler
+
+            result = lambda_handler(event, None)
+
+        assert result["statusCode"] == 200

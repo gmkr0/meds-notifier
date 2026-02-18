@@ -37,3 +37,9 @@ output "ssm_bot_token_param" {
   description = "SSM parameter name for the Telegram bot token"
   value       = aws_ssm_parameter.bot_token.name
 }
+
+output "webhook_secret" {
+  description = "Secret token for Telegram webhook validation (use as secret_token when registering)"
+  value       = random_password.webhook_secret.result
+  sensitive   = true
+}

@@ -51,7 +51,7 @@ deploy: package
 destroy:
     cd infra && terraform destroy
 
-register-webhook: (_register-webhook `cd infra && terraform output -raw webhook_url`)
+register-webhook: (_register-webhook `cd infra && terraform output -raw webhook_url` `cd infra && terraform output -raw webhook_secret`)
 
-_register-webhook webhook_url:
-    curl -s "https://api.telegram.org/bot${BOT_TOKEN}/setWebhook?url={{webhook_url}}"
+_register-webhook webhook_url webhook_secret:
+    curl -s "https://api.telegram.org/bot${BOT_TOKEN}/setWebhook?url={{webhook_url}}&secret_token={{webhook_secret}}"

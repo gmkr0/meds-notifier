@@ -20,25 +20,28 @@ Serverless Telegram bot on AWS that reminds subscribers to give a dog its medica
 │   ├── variables.tf
 │   ├── outputs.tf
 │   └── modules/
-│       ├── lambda/
-│       └── dynamodb/
+│       └── lambda/
+│           ├── main.tf
+│           ├── variables.tf
+│           └── outputs.tf
 ├── src/
+│   ├── config.json
 │   ├── notifier/
-│   │   ├── handler.py
-│   │   └── config.json
+│   │   └── handler.py
 │   ├── reminder/
 │   │   └── handler.py
 │   └── webhook/
 │       └── handler.py
 ├── shared/
-│   ├── telegram.py      # Telegram API helper (sendMessage, etc.)
-│   └── dynamo.py        # DynamoDB helper functions
+│   ├── dynamo.py          # DynamoDB helper functions
+│   └── telegram.py        # Telegram API helper (sendMessage, broadcast, callback)
 ├── tests/
+│   ├── conftest.py        # Pytest fixtures (moto mocks, env setup)
 │   ├── test_notifier.py
 │   ├── test_reminder.py
 │   └── test_webhook.py
-├── Makefile
-└── README.md
+├── pytest.ini
+└── requirements-dev.txt
 ```
 
 ## Architecture
@@ -46,24 +49,26 @@ Serverless Telegram bot on AWS that reminds subscribers to give a dog its medica
 ### Lambda Functions
 
 1. **lambda_notifier** — triggered by EventBridge on schedule (morning + evening)
-   - Reads medication config from bundled `config.json`
-   - Writes a pending confirmation record to DynamoDB (`med_tracker_confirmations`) with 24h TTL
-   - Sends message to all subscribers: "💊 Time to give [dog_name] their [medication] [dose]! Reply /done to confirm."
+   - Reads medication config from `src/config.json` (path via `CONFIG_PATH` env var)
+   - Writes a pending confirmation record to DynamoDB with 24h TTL
+   - Sends message with inline "Done" button to all subscribers
 
-2. **lambda_reminder** — triggered by EventBridge 15 minutes after each notifier
-   - Checks DynamoDB for the current schedule window's confirmation status
-   - If not confirmed → sends reminder: "⚠️ Reminder: [dog_name]'s [medication] has not been confirmed yet!"
-   - If confirmed → no-op
+2. **lambda_reminder** — triggered by EventBridge on a recurring rate schedule
+   - Scans for unconfirmed records across both morning and evening windows (today + yesterday)
+   - If any pending → broadcasts reminder to all subscribers
+   - If all confirmed → no-op
 
-3. **lambda_webhook** — API Gateway POST endpoint (Telegram webhook)
-   - `/done` or `/administered` → writes confirmation to DynamoDB for current schedule window
+3. **lambda_webhook** — API Gateway v2 POST endpoint (Telegram webhook)
+   - `/start` → subscribes user and sends welcome message with command list
+   - `/done` or `/administered` → marks most recent pending confirmation as done, broadcasts to all
    - `/subscribe` → adds chat_id to `med_tracker_subscribers`
    - `/unsubscribe` → removes chat_id from subscribers
+   - Inline button callback (`data="done"`) → same as `/done`, with callback acknowledgement
 
 ### DynamoDB Tables
 
 **med_tracker_confirmations**
-| PK (schedule_key)       | confirmed | confirmed_by | confirmed_at | TTL   |
+| PK (schedule_key)       | confirmed | confirmed_by | confirmed_at | ttl   |
 |--------------------------|-----------|-------------|-------------|-------|
 | `2024-01-15_morning`     | true      | chat_id     | timestamp   | +24h  |
 
@@ -76,20 +81,20 @@ Serverless Telegram bot on AWS that reminds subscribers to give a dog its medica
 
 `YYYY-MM-DD_morning` or `YYYY-MM-DD_evening` — date-scoped so confirmations reset daily.
 
-## Config File (src/notifier/config.json)
+## Config File (src/config.json)
 
 ```json
 {
-  "dog_name": "Max",
+  "dog_name": "Shelsi",
   "medications": [
     {
-      "name": "Vetmedin",
-      "dose": "5mg",
+      "name": "Phenobarbital",
+      "dose": "64.8 mg",
       "schedule_key": "morning"
     },
     {
-      "name": "Vetmedin",
-      "dose": "5mg",
+      "name": "Phenobarbital",
+      "dose": "64.8 mg",
       "schedule_key": "evening"
     }
   ],
@@ -99,51 +104,58 @@ Serverless Telegram bot on AWS that reminds subscribers to give a dog its medica
 
 ## Terraform Resources
 
-- `aws_lambda_function` × 3 (notifier, reminder, webhook)
-- `aws_iam_role` + policies for Lambda (DynamoDB read/write, SSM read, CloudWatch Logs)
-- `aws_dynamodb_table` × 2 (confirmations, subscribers)
-- `aws_scheduler_schedule` × 4 (morning notifier, morning reminder +15min, evening notifier, evening reminder +15min)
-- `aws_apigatewayv2_api` + `aws_apigatewayv2_integration` + route for webhook
+- `aws_lambda_function` × 3 (notifier, reminder, webhook) via `infra/modules/lambda/`
+- `aws_iam_role` + shared policy for Lambda (DynamoDB read/write, SSM read, CloudWatch Logs)
+- `aws_dynamodb_table` × 2 (confirmations with TTL, subscribers)
+- `aws_scheduler_schedule` × 3 (morning notifier, evening notifier, recurring reminder)
+- `aws_apigatewayv2_api` + integration + route (`POST /webhook`) with auto-deploy stage
 - `aws_ssm_parameter` for Telegram bot token (SecureString)
-- `aws_cloudwatch_log_group` × 3
+- `aws_cloudwatch_log_group` × 3 (14-day retention)
 
 ### Terraform Variables
 
-| Variable                | Description                        | Default              |
-|-------------------------|------------------------------------|----------------------|
-| `morning_schedule_cron` | Morning schedule                   | `cron(0 8 * * ? *)`  |
-| `evening_schedule_cron` | Evening schedule                   | `cron(0 20 * * ? *)` |
-| `aws_region`            | AWS region                         | `us-east-1`          |
-| `environment`           | Deployment environment             | `prod`               |
+| Variable                     | Description                        | Default              |
+|------------------------------|------------------------------------|----------------------|
+| `morning_schedule_cron`      | Morning notifier schedule          | `cron(0 11 * * ? *)` |
+| `evening_schedule_cron`      | Evening notifier schedule          | `cron(0 23 * * ? *)` |
+| `reminder_interval_minutes`  | Reminder rate interval             | `15`                 |
+| `aws_region`                 | AWS region                         | `us-east-1`          |
+| `environment`                | Deployment environment             | `prod`               |
+| `project_name`               | Project name prefix                | `med-notifier`       |
+| `telegram_bot_token`         | Telegram bot token (sensitive)     | —                    |
+| `aws_access_key`             | AWS access key (sensitive)         | —                    |
+| `aws_secret_key`             | AWS secret key (sensitive)         | —                    |
 
 ## Implementation Rules
 
 - Each Lambda ZIP includes its `handler.py` + the `shared/` directory
 - Use `boto3` for DynamoDB and SSM (available in Lambda runtime, no layer needed)
 - Use `urllib.request` for Telegram API calls — no external dependencies
-- All sensitive values (bot token) come from SSM at runtime, never hardcoded
-- Telegram webhook URL registered after API Gateway deploy via `make register-webhook`
+- Bot token resolved at runtime: checks `BOT_TOKEN` env var first, falls back to SSM
+- All sensitive Terraform variables marked `sensitive = true`
 
 ## Commands
 
 ```bash
-make install            # Install dev dependencies (pytest, moto, etc.)
-make test               # Run unit tests
-make package            # ZIP Lambda functions for deployment
-make deploy             # terraform init + apply
-make destroy            # terraform destroy
-make register-webhook   # Register Telegram webhook URL with bot API
+just install            # Install dev dependencies (pytest, moto, boto3)
+just test               # Run unit tests
+just package            # ZIP Lambda functions for deployment
+just deploy             # Package + terraform init + apply
+just destroy            # Terraform destroy
+just register-webhook   # Register Telegram webhook URL + secret with bot API
 ```
 
 ## Testing
 
 - Tests use `pytest` with `moto` for mocking AWS services and `unittest.mock` for Telegram API calls
-- Test files: `tests/test_notifier.py`, `tests/test_reminder.py`, `tests/test_webhook.py`
-- Run with `make test` or `python -m pytest tests/`
+- Shared fixtures in `tests/conftest.py`: mocked DynamoDB tables, SSM parameter, env vars
+- Module-level caches in `shared/` are reset between tests via fixture
+- Run with `just test`
 
 ## Conventions
 
 - Python code follows standard Python style (PEP 8)
 - Terraform uses module-based organization under `infra/modules/`
-- Environment variables used to pass config to Lambdas: `TABLE_CONFIRMATIONS`, `TABLE_SUBSCRIBERS`, `SSM_BOT_TOKEN_PARAM`, `SCHEDULE_KEY` (morning/evening)
+- Environment variables passed to Lambdas: `TABLE_CONFIRMATIONS`, `TABLE_SUBSCRIBERS`, `SSM_BOT_TOKEN_PARAM`, `CONFIG_PATH`, `ENVIRONMENT`
 - Lambda handler entry points: `handler.lambda_handler(event, context)`
+- DynamoDB client and SSM client are lazy-initialized and cached at module level
