@@ -21,8 +21,10 @@ def _make_event(chat_id, text, first_name="Test", last_name="User"):
 
 
 class TestWebhookDone:
-    def test_done_confirms_pending(self, aws):
-        """'/done' confirms the most recent pending schedule key."""
+    def test_done_confirms_and_broadcasts(self, aws):
+        """'/done' confirms and broadcasts to all subscribers."""
+        dynamo.add_subscriber(111, "Test User")
+        dynamo.add_subscriber(222, "Other User")
         key = dynamo.build_schedule_key("morning")
         dynamo.put_pending_confirmation(key)
         event = _make_event(111, "/done")
@@ -37,11 +39,14 @@ class TestWebhookDone:
         item = dynamo.get_confirmation(key)
         assert item["confirmed"]["BOOL"] is True
         assert item["confirmed_by"]["N"] == "111"
-        mock_send.assert_called_once()
-        assert "Confirmed" in mock_send.call_args[0][1]
+        assert mock_send.call_count == 2
+        msg = mock_send.call_args[0][1]
+        assert "Test User" in msg
+        assert "confirmed" in msg.lower()
 
     def test_administered_also_works(self, aws):
         """'/administered' is an alias for /done."""
+        dynamo.add_subscriber(222, "Someone")
         key = dynamo.build_schedule_key("evening")
         dynamo.put_pending_confirmation(key)
         event = _make_event(222, "/administered")
@@ -153,6 +158,7 @@ class TestWebhookEdgeCases:
 
     def test_done_with_bot_suffix(self, aws):
         """'/done@MyBot' is handled the same as '/done'."""
+        dynamo.add_subscriber(111, "Test User")
         key = dynamo.build_schedule_key("morning")
         dynamo.put_pending_confirmation(key)
         event = _make_event(111, "/done@MedReminderBot")

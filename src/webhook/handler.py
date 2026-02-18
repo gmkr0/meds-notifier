@@ -43,14 +43,17 @@ def _parse_message(event):
     return chat_id, text, name
 
 
-def _handle_done(chat_id):
+def _handle_done(chat_id, name):
     key = _find_pending_schedule_key()
     if key is None:
         telegram.send_message(chat_id, "No pending medication to confirm right now.")
         return
 
     dynamo.mark_confirmed(key, chat_id)
-    telegram.send_message(chat_id, f"Confirmed {key} \u2705")
+
+    subscribers = dynamo.get_all_subscribers()
+    chat_ids = [int(s["chat_id"]["N"]) for s in subscribers]
+    telegram.broadcast(chat_ids, f"{name} confirmed {key} \u2705")
 
 
 def _handle_subscribe(chat_id, name):
@@ -86,7 +89,7 @@ def lambda_handler(event, context):
     command = command.split("@")[0]
 
     if command in CONFIRM_COMMANDS:
-        _handle_done(chat_id)
+        _handle_done(chat_id, name)
     elif command == "/subscribe":
         _handle_subscribe(chat_id, name)
     elif command == "/unsubscribe":
