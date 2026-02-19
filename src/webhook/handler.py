@@ -13,6 +13,9 @@ FORBIDDEN_RESPONSE = {"statusCode": 403, "body": "forbidden"}
 
 _webhook_secret = os.environ.get("WEBHOOK_SECRET")
 
+_config_dir = os.environ.get("CONFIG_PATH", os.path.dirname(__file__))
+with open(os.path.join(_config_dir, "config.json")) as f:
+    CONFIG = json.load(f)
 
 def _parse_update(event):
     """Parse an API Gateway v2 event into chat_id, text, name, and callback_query_id.
@@ -40,6 +43,9 @@ def _parse_update(event):
 
 
 def _handle_done(chat_id, name):
+    dog_name = CONFIG["dog_name"]
+    med = CONFIG["medication"]
+
     pending = dynamo.get_pending_confirmations()
     if not pending:
         telegram.send_message(chat_id, "No pending medication to confirm right now.")
@@ -47,10 +53,20 @@ def _handle_done(chat_id, name):
 
     for key in pending:
         dynamo.mark_confirmed(key, chat_id)
+        # Delete old notification/reminder messages
+        sent_messages = dynamo.get_sent_messages(key)
+        if sent_messages:
+            telegram.delete_broadcast(sent_messages)
 
+    # Broadcast confirmation to all subscribers
     subscribers = dynamo.get_all_subscribers()
-    chat_ids = [int(s["chat_id"]["N"]) for s in subscribers]
-    telegram.broadcast(chat_ids, f"{name} confirmed the medication! \u2705")
+    all_chat_ids = [int(s["chat_id"]["N"]) for s in subscribers]
+    confirmed_text = (
+        f"\u2705 {dog_name}'s {med['name']} ({med['dose']}) "
+        f"\u2014 confirmed by {name}!"
+    )
+    if all_chat_ids:
+        telegram.broadcast(all_chat_ids, confirmed_text)
 
 
 def _handle_subscribe(chat_id, name):

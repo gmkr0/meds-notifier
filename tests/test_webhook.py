@@ -43,16 +43,19 @@ def _make_callback_event(chat_id, data, callback_query_id="cb-123",
 
 
 class TestWebhookDone:
-    def test_done_confirms_and_broadcasts(self, aws):
-        """'/done' confirms and broadcasts to all subscribers."""
+    def test_done_deletes_old_and_broadcasts_confirmation(self, aws):
+        """'/done' deletes old messages and broadcasts confirmation."""
         dynamo.add_subscriber(111, "Test User")
         dynamo.add_subscriber(222, "Other User")
         key = dynamo.build_schedule_key(11)
         dynamo.put_pending_confirmation(key)
+        dynamo.save_sent_messages(key, {111: 50, 222: 51})
         event = _make_event(111, "/done")
 
-        with patch("shared.telegram.send_message") as mock_send:
-            mock_send.return_value = True
+        with patch("shared.telegram.send_message") as mock_send, \
+             patch("shared.telegram.delete_message") as mock_delete:
+            mock_send.return_value = 99
+            mock_delete.return_value = True
             from src.webhook.handler import lambda_handler
 
             result = lambda_handler(event, None)
@@ -61,10 +64,34 @@ class TestWebhookDone:
         item = dynamo.get_confirmation(key)
         assert item["confirmed"]["BOOL"] is True
         assert item["confirmed_by"]["N"] == "111"
+        # Both old messages were deleted
+        assert mock_delete.call_count == 2
+        # Confirmation broadcast to all subscribers
         assert mock_send.call_count == 2
-        msg = mock_send.call_args[0][1]
-        assert "Test User" in msg
-        assert "confirmed" in msg.lower()
+        # Check confirmation text
+        assert "confirmed by Test User" in mock_send.call_args[0][1]
+
+    def test_done_no_sent_messages_still_broadcasts(self, aws):
+        """'/done' without sent_messages skips delete but still broadcasts confirmation."""
+        dynamo.add_subscriber(111, "Test User")
+        key = dynamo.build_schedule_key(11)
+        dynamo.put_pending_confirmation(key)
+        event = _make_event(111, "/done")
+
+        with patch("shared.telegram.send_message") as mock_send, \
+             patch("shared.telegram.delete_message") as mock_delete:
+            mock_send.return_value = 99
+            from src.webhook.handler import lambda_handler
+
+            result = lambda_handler(event, None)
+
+        assert result["statusCode"] == 200
+        item = dynamo.get_confirmation(key)
+        assert item["confirmed"]["BOOL"] is True
+        mock_delete.assert_not_called()
+        # Confirmation still broadcast
+        mock_send.assert_called_once()
+        assert "confirmed by Test User" in mock_send.call_args[0][1]
 
     def test_administered_also_works(self, aws):
         """'/administered' is an alias for /done."""
@@ -73,8 +100,10 @@ class TestWebhookDone:
         dynamo.put_pending_confirmation(key)
         event = _make_event(222, "/administered")
 
-        with patch("shared.telegram.send_message") as mock_send:
-            mock_send.return_value = True
+        with patch("shared.telegram.send_message") as mock_send, \
+             patch("shared.telegram.delete_message") as mock_delete:
+            mock_send.return_value = 99
+            mock_delete.return_value = True
             from src.webhook.handler import lambda_handler
 
             result = lambda_handler(event, None)
@@ -90,10 +119,14 @@ class TestWebhookDone:
         key2 = dynamo.build_schedule_key(23)
         dynamo.put_pending_confirmation(key1)
         dynamo.put_pending_confirmation(key2)
+        dynamo.save_sent_messages(key1, {111: 50})
+        dynamo.save_sent_messages(key2, {111: 51})
         event = _make_event(111, "/done")
 
-        with patch("shared.telegram.send_message") as mock_send:
-            mock_send.return_value = True
+        with patch("shared.telegram.send_message") as mock_send, \
+             patch("shared.telegram.delete_message") as mock_delete:
+            mock_send.return_value = 99
+            mock_delete.return_value = True
             from src.webhook.handler import lambda_handler
 
             result = lambda_handler(event, None)
@@ -101,13 +134,18 @@ class TestWebhookDone:
         assert result["statusCode"] == 200
         assert dynamo.get_confirmation(key1)["confirmed"]["BOOL"] is True
         assert dynamo.get_confirmation(key2)["confirmed"]["BOOL"] is True
+        # Both old messages were deleted
+        assert mock_delete.call_count == 2
+        # Confirmation broadcast (one message per subscriber)
+        mock_send.assert_called_once()
+        assert "confirmed by Test User" in mock_send.call_args[0][1]
 
     def test_done_no_pending(self, aws):
         """'/done' with nothing pending sends helpful message."""
         event = _make_event(111, "/done")
 
         with patch("shared.telegram.send_message") as mock_send:
-            mock_send.return_value = True
+            mock_send.return_value = 99
             from src.webhook.handler import lambda_handler
 
             result = lambda_handler(event, None)
@@ -123,7 +161,7 @@ class TestWebhookSubscribe:
         event = _make_event(333, "/subscribe", "Alice", "Smith")
 
         with patch("shared.telegram.send_message") as mock_send:
-            mock_send.return_value = True
+            mock_send.return_value = 99
             from src.webhook.handler import lambda_handler
 
             result = lambda_handler(event, None)
@@ -140,7 +178,7 @@ class TestWebhookSubscribe:
         event = _make_event(444, "/unsubscribe")
 
         with patch("shared.telegram.send_message") as mock_send:
-            mock_send.return_value = True
+            mock_send.return_value = 99
             from src.webhook.handler import lambda_handler
 
             result = lambda_handler(event, None)
@@ -156,7 +194,7 @@ class TestWebhookStart:
         event = _make_event(555, "/start", "Charlie", "")
 
         with patch("shared.telegram.send_message") as mock_send:
-            mock_send.return_value = True
+            mock_send.return_value = 99
             from src.webhook.handler import lambda_handler
 
             result = lambda_handler(event, None)
@@ -169,17 +207,20 @@ class TestWebhookStart:
 
 
 class TestWebhookCallbackButton:
-    def test_done_button_confirms_pending(self, aws):
-        """Tapping the 'Done' inline button confirms the pending schedule key."""
+    def test_done_button_confirms_deletes_and_broadcasts(self, aws):
+        """Tapping 'Done' inline button confirms, deletes old messages, and broadcasts."""
         dynamo.add_subscriber(111, "Test User")
         key = dynamo.build_schedule_key(11)
         dynamo.put_pending_confirmation(key)
+        dynamo.save_sent_messages(key, {111: 50})
         event = _make_callback_event(111, "done")
 
         with patch("shared.telegram.send_message") as mock_send, \
-             patch("shared.telegram.answer_callback_query") as mock_answer:
-            mock_send.return_value = True
+             patch("shared.telegram.answer_callback_query") as mock_answer, \
+             patch("shared.telegram.delete_message") as mock_delete:
+            mock_send.return_value = 99
             mock_answer.return_value = True
+            mock_delete.return_value = True
             from src.webhook.handler import lambda_handler
 
             result = lambda_handler(event, None)
@@ -188,8 +229,10 @@ class TestWebhookCallbackButton:
         item = dynamo.get_confirmation(key)
         assert item["confirmed"]["BOOL"] is True
         mock_answer.assert_called_once_with("cb-123")
+        mock_delete.assert_called_once()
+        # Confirmation broadcast
         mock_send.assert_called_once()
-        assert "Test User" in mock_send.call_args[0][1]
+        assert "confirmed by Test User" in mock_send.call_args[0][1]
 
     def test_done_button_no_pending(self, aws):
         """Tapping 'Done' with nothing pending sends helpful message and acknowledges."""
@@ -197,7 +240,7 @@ class TestWebhookCallbackButton:
 
         with patch("shared.telegram.send_message") as mock_send, \
              patch("shared.telegram.answer_callback_query") as mock_answer:
-            mock_send.return_value = True
+            mock_send.return_value = 99
             mock_answer.return_value = True
             from src.webhook.handler import lambda_handler
 
@@ -215,7 +258,7 @@ class TestWebhookEdgeCases:
         event = _make_event(111, "/foobar")
 
         with patch("shared.telegram.send_message") as mock_send:
-            mock_send.return_value = True
+            mock_send.return_value = 99
             from src.webhook.handler import lambda_handler
 
             result = lambda_handler(event, None)
@@ -231,7 +274,6 @@ class TestWebhookEdgeCases:
             from src.webhook.handler import lambda_handler
 
             # json.loads will fail, but we should handle gracefully
-            # Actually the handler will raise — let's verify it returns 200
             # for bodies that parse but have no message
             event2 = {"headers": VALID_SECRET_HEADERS, "body": "{}"}
             result = lambda_handler(event2, None)
@@ -245,8 +287,10 @@ class TestWebhookEdgeCases:
         dynamo.put_pending_confirmation(key)
         event = _make_event(111, "/done@MedReminderBot")
 
-        with patch("shared.telegram.send_message") as mock_send:
-            mock_send.return_value = True
+        with patch("shared.telegram.send_message") as mock_send, \
+             patch("shared.telegram.delete_message") as mock_delete:
+            mock_send.return_value = 99
+            mock_delete.return_value = True
             from src.webhook.handler import lambda_handler
 
             result = lambda_handler(event, None)
@@ -285,7 +329,7 @@ class TestWebhookSecretValidation:
         event = _make_event(111, "/subscribe", "Test", "User")
 
         with patch("shared.telegram.send_message") as mock_send:
-            mock_send.return_value = True
+            mock_send.return_value = 99
             from src.webhook.handler import lambda_handler
 
             result = lambda_handler(event, None)

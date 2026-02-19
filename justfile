@@ -39,6 +39,7 @@ package: clean
     # --- webhook ---
     mkdir -p {{stage_dir}}/webhook
     cp src/webhook/handler.py {{stage_dir}}/webhook/
+    cp src/config.json {{stage_dir}}/webhook/
     cp -r shared {{stage_dir}}/webhook/
     cd {{stage_dir}}/webhook && zip -r ../../{{dist_dir}}/webhook.zip .
 

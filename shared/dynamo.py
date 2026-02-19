@@ -80,7 +80,11 @@ def get_pending_confirmations():
 
 def get_all_subscribers():
     """Scan the subscribers table. Returns list of items."""
-    resp = _get_client().scan(TableName=_subscribers_table())
+    resp = _get_client().scan(
+        TableName=_subscribers_table(),
+        FilterExpression="is_active = :f",
+        ExpressionAttributeValues={":f": {"BOOL": True}},
+        )
     return resp.get("Items", [])
 
 
@@ -92,6 +96,7 @@ def add_subscriber(chat_id, name):
             "chat_id": {"N": str(chat_id)},
             "name": {"S": name},
             "subscribed_at": {"N": str(int(time.time()))},
+            "is_active": {"BOOL": True},
         },
     )
 
@@ -102,3 +107,46 @@ def remove_subscriber(chat_id):
         TableName=_subscribers_table(),
         Key={"chat_id": {"N": str(chat_id)}},
     )
+
+
+def save_sent_messages(schedule_key, sent_messages):
+    """Append sent message IDs to per-chat_id lists on a confirmation record.
+
+    Each chat_id maps to a list of message IDs so that all notifications
+    and reminders can be cleaned up on confirmation.
+    """
+    if not sent_messages:
+        return
+    _get_client().update_item(
+        TableName=_confirmations_table(),
+        Key={"schedule_key": {"S": schedule_key}},
+        UpdateExpression="SET sent_messages = if_not_exists(sent_messages, :empty)",
+        ExpressionAttributeValues={":empty": {"M": {}}},
+    )
+    for chat_id, msg_id in sent_messages.items():
+        cid_str = str(chat_id)
+        _get_client().update_item(
+            TableName=_confirmations_table(),
+            Key={"schedule_key": {"S": schedule_key}},
+            UpdateExpression=(
+                "SET sent_messages.#cid = "
+                "list_append(if_not_exists(sent_messages.#cid, :empty_list), :new_id)"
+            ),
+            ExpressionAttributeNames={"#cid": cid_str},
+            ExpressionAttributeValues={
+                ":empty_list": {"L": []},
+                ":new_id": {"L": [{"N": str(msg_id)}]},
+            },
+        )
+
+
+def get_sent_messages(schedule_key):
+    """Return {chat_id (int): [message_id (int), ...]} from the confirmation record."""
+    item = get_confirmation(schedule_key)
+    if not item or "sent_messages" not in item:
+        return {}
+    raw = item["sent_messages"]["M"]
+    return {
+        int(cid): [int(mid["N"]) for mid in msg_list["L"]]
+        for cid, msg_list in raw.items()
+    }

@@ -285,7 +285,7 @@ resource "aws_scheduler_schedule" "reminder" {
   name       = "${local.prefix}-reminder"
   group_name = "default"
 
-  schedule_expression          = "cron(1/${var.reminder_interval_minutes} * * * ? *)"
+  schedule_expression          = "cron(10/${var.reminder_interval_minutes} * * * ? *)"
   schedule_expression_timezone = var.schedule_timezone
 
   flexible_time_window {

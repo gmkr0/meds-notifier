@@ -30,8 +30,10 @@ def lambda_handler(event, context):
         logger.warning("No subscribers to notify")
         return {"statusCode": 200, "body": "no subscribers"}
 
-    text = f"\U0001f48a Time to give {dog_name} his {med['name']}!"
-    telegram.broadcast(chat_ids, text, reply_markup=telegram.DONE_BUTTON)
+    text = f"\U0001f48a Time to give {dog_name} his {med['name']} ({med['dose']})!"
+    sent = telegram.broadcast(chat_ids, text, reply_markup=telegram.DONE_BUTTON)
+    if sent:
+        dynamo.save_sent_messages(key, sent)
 
     logger.info("Notified %d subscribers for %s", len(chat_ids), key)
     return {"statusCode": 200, "body": f"notified {len(chat_ids)} subscribers"}

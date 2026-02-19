@@ -30,10 +30,25 @@ def lambda_handler(event, context):
 
     for key in pending:
         text = (
-            f"\u26a0\ufe0f Reminder: {dog_name}'s {med['name']} "
-            f"has not been confirmed yet!"
+            f"\u26a0\ufe0f Reminder: {dog_name}'s {med['name']} ({med['dose']}) "
+            f"still pending!"
         )
-        telegram.broadcast(chat_ids, text, reply_markup=telegram.DONE_BUTTON)
+
+        # Remove buttons from the latest tracked messages
+        sent_messages = dynamo.get_sent_messages(key)
+        if sent_messages:
+            latest = {cid: mids[-1] for cid, mids in sent_messages.items()}
+            telegram.edit_broadcast_reply_markup(
+                latest, reply_markup=telegram.NO_BUTTONS
+            )
+
+        # Send new reminder to ALL subscribers
+        new_sent = telegram.broadcast(
+            chat_ids, text, reply_markup=telegram.DONE_BUTTON
+        )
+        if new_sent:
+            dynamo.save_sent_messages(key, new_sent)
+
         logger.info("Sent reminder to %d subscribers for %s", len(chat_ids), key)
 
     return {"statusCode": 200, "body": f"reminded for {len(pending)} pending dose(s)"}
