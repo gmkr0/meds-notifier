@@ -28,7 +28,8 @@ def lambda_handler(event, context):
         logger.warning("No subscribers for reminder")
         return {"statusCode": 200, "body": "no subscribers"}
 
-    for key in pending:
+    for pending_confirmation in pending:
+        key = pending_confirmation.schedule_key
         text = (
             f"\u26a0\ufe0f Reminder: {dog_name}'s {med['name']} ({med['dose']}) "
             f"still pending!"

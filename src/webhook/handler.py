@@ -1,6 +1,7 @@
 import json
 import logging
 import os
+import time
 
 from shared import dynamo, telegram
 
@@ -51,7 +52,8 @@ def _handle_done(chat_id, name):
         telegram.send_message(chat_id, "No pending medication to confirm right now.")
         return
 
-    for key in pending:
+    for pending_confirmation in pending:
+        key = pending_confirmation.schedule_key
         dynamo.mark_confirmed(key, chat_id)
         # Delete old notification/reminder messages
         sent_messages = dynamo.get_sent_messages(key)
@@ -61,13 +63,24 @@ def _handle_done(chat_id, name):
     # Broadcast confirmation to all subscribers
     subscribers = dynamo.get_all_subscribers()
     all_chat_ids = [int(s["chat_id"]["N"]) for s in subscribers]
+
+    is_past_due = any(_is_past_due(confirmation) for confirmation in pending)
+    icon = "⚠️" if is_past_due else "✅"
+    confirmation_text = "confirmed *past due*" if is_past_due else "confirmed"
+
     confirmed_text = (
-        f"\u2705 {dog_name}'s {med['name']} ({med['dose']}) "
-        f"\u2014 confirmed by {name}!"
+        f"{icon} {dog_name}'s {med['name']} ({med['dose']}) "
+        f"\u2014 {confirmation_text} by {name}!"
     )
     if all_chat_ids:
         telegram.broadcast(all_chat_ids, confirmed_text)
 
+def _is_past_due(confirmation: dynamo.PendingConfirmation):
+    due_period_minutes = CONFIG["due_period_minutes"]
+    now = time.time()
+    scheduled_at = confirmation.scheduled_at
+    difference_minuntes = (now - scheduled_at) / 60
+    return difference_minuntes > due_period_minutes
 
 def _handle_subscribe(chat_id, name):
     dynamo.add_subscriber(chat_id, name)

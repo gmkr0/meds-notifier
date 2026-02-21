@@ -4,5 +4,6 @@
     "name": "Phenobarbital",
     "dose": "64.8 mg"
   },
-  "timezone": "America/New_York"
+  "timezone": "America/New_York",
+  "due_period_minutes": 35
 }

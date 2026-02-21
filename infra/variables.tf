@@ -13,7 +13,7 @@ variable "schedule_timezone" {
 variable "reminder_interval_minutes" {
   description = "How often (in minutes) to check for unconfirmed medications and send reminders"
   type        = number
-  default     = 15
+  default     = 10
 }
 
 variable "aws_region" {

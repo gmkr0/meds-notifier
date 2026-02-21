@@ -2,6 +2,7 @@ import json
 import os
 from unittest.mock import patch
 from datetime import date
+import time
 
 from shared import dynamo
 
@@ -154,6 +155,45 @@ class TestWebhookDone:
         mock_send.assert_called_once()
         assert "No pending" in mock_send.call_args[0][1]
 
+    def test_done_past_due(self, aws):
+        """'/done' past due shows warning icon."""
+        dynamo.add_subscriber(111, "Test User")
+        key = dynamo.build_schedule_key(11)
+        now = time.time()
+        dynamo.put_pending_confirmation(key)
+        dynamo.save_sent_messages(key, {111: 50, 222: 51})
+        event = _make_event(111, "/done")
+
+        with patch("shared.telegram.send_message") as mock_send, \
+             patch("shared.telegram.delete_message") as mock_delete, \
+             patch("time.time") as mock_time:
+            mock_send.return_value = 99
+            mock_delete.return_value = True
+            mock_time.return_value = now + 40 * 60 + 1
+            from src.webhook.handler import lambda_handler
+            result = lambda_handler(event, None)
+        assert result["statusCode"] == 200
+        assert "⚠️" in mock_send.call_args[0][1]
+    
+    def test_done_in_time(self, aws):
+        """'/done' in time shows success icon."""
+        dynamo.add_subscriber(111, "Test User")
+        key = dynamo.build_schedule_key(11)
+        now = time.time()
+        dynamo.put_pending_confirmation(key)
+        dynamo.save_sent_messages(key, {111: 50, 222: 51})
+        event = _make_event(111, "/done")
+
+        with patch("shared.telegram.send_message") as mock_send, \
+             patch("shared.telegram.delete_message") as mock_delete, \
+             patch("time.time") as mock_time:
+            mock_send.return_value = 99
+            mock_delete.return_value = True
+            mock_time.return_value = now + 10 * 60 + 1
+            from src.webhook.handler import lambda_handler
+            result = lambda_handler(event, None)
+        assert result["statusCode"] == 200
+        assert "✅" in mock_send.call_args[0][1]
 
 class TestWebhookSubscribe:
     def test_subscribe(self, aws):

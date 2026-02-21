@@ -39,6 +39,7 @@ def put_pending_confirmation(schedule_key):
         TableName=_confirmations_table(),
         Item={
             "schedule_key": {"S": schedule_key},
+            "scheduled_at": {"N": str(int(time.time()))},
             "confirmed": {"BOOL": False},
             "ttl": {"N": str(ttl)},
         },
@@ -67,15 +68,19 @@ def mark_confirmed(schedule_key, chat_id):
         },
     )
 
+class PendingConfirmation:
+    def __init__(self, schedule_key, scheduled_at):
+        self.schedule_key = schedule_key
+        self.scheduled_at = scheduled_at
 
-def get_pending_confirmations():
+def get_pending_confirmations() -> list[PendingConfirmation]:
     """Scan for all unconfirmed records. Returns list of schedule_key strings."""
     resp = _get_client().scan(
         TableName=_confirmations_table(),
         FilterExpression="confirmed = :f",
         ExpressionAttributeValues={":f": {"BOOL": False}},
     )
-    return [item["schedule_key"]["S"] for item in resp.get("Items", [])]
+    return [PendingConfirmation(item["schedule_key"]["S"], int(item["scheduled_at"]["N"])) for item in resp.get("Items", [])]
 
 
 def get_all_subscribers():

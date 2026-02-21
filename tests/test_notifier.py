@@ -27,6 +27,7 @@ class TestNotifierHandler:
         item = dynamo.get_confirmation(key)
         assert item is not None
         assert item["confirmed"]["BOOL"] is False
+        assert item["scheduled_at"]["N"] is not None
 
         # Verify sent_messages were saved
         sent = dynamo.get_sent_messages(key)
