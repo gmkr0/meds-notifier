@@ -16,7 +16,7 @@ with open(os.path.join(_config_dir, "config.json")) as f:
 
 def lambda_handler(event, context):
     dog_name = CONFIG["dog_name"]
-    med = CONFIG["medication"]
+    meds = ", ".join(f"{m['name']} ({m['dose']})" for m in CONFIG["medications"])
 
     tz = ZoneInfo(CONFIG["timezone"])
     now = datetime.now(tz)
@@ -30,7 +30,7 @@ def lambda_handler(event, context):
         logger.warning("No subscribers to notify")
         return {"statusCode": 200, "body": "no subscribers"}
 
-    text = f"\U0001f48a Time to give {dog_name} his {med['name']} ({med['dose']})!"
+    text = f"\U0001f48a Time to give {dog_name} his {meds}!"
     sent = telegram.broadcast(chat_ids, text, reply_markup=telegram.DONE_BUTTON)
     if sent:
         dynamo.save_sent_messages(key, sent)

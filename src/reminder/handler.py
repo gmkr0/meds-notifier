@@ -14,7 +14,7 @@ with open(os.path.join(_config_dir, "config.json")) as f:
 
 def lambda_handler(event, context):
     dog_name = CONFIG["dog_name"]
-    med = CONFIG["medication"]
+    meds = ", ".join(f"{m['name']} ({m['dose']})" for m in CONFIG["medications"])
     pending = dynamo.get_pending_confirmations()
 
     if not pending:
@@ -31,7 +31,7 @@ def lambda_handler(event, context):
     for pending_confirmation in pending:
         key = pending_confirmation.schedule_key
         text = (
-            f"\u26a0\ufe0f Reminder: {dog_name}'s {med['name']} ({med['dose']}) "
+            f"\u26a0\ufe0f Reminder: {dog_name}'s {meds} "
             f"still pending!"
         )
 

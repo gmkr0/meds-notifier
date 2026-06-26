@@ -1,9 +1,15 @@
 {
   "dog_name": "Shelsi",
-  "medication": {
-    "name": "Phenobarbital",
-    "dose": "145.8 mg"
-  },
+  "medications": [
+    {
+      "name": "Phenobarbital",
+      "dose": "145.8 mg"
+    },
+    {
+      "name": "Levetiracetam",
+      "dose": "1500 mg"
+    }
+  ],
   "timezone": "America/New_York",
   "due_period_minutes": 35
 }

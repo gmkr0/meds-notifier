@@ -45,7 +45,7 @@ def _parse_update(event):
 
 def _handle_done(chat_id, name):
     dog_name = CONFIG["dog_name"]
-    med = CONFIG["medication"]
+    meds = ", ".join(f"{m['name']} ({m['dose']})" for m in CONFIG["medications"])
 
     pending = dynamo.get_pending_confirmations()
     if not pending:
@@ -69,7 +69,7 @@ def _handle_done(chat_id, name):
     confirmation_text = "confirmed *past due*" if is_past_due else "confirmed"
 
     confirmed_text = (
-        f"{icon} {dog_name}'s {med['name']} ({med['dose']}) "
+        f"{icon} {dog_name}'s {meds} "
         f"\u2014 {confirmation_text} by {name}!"
     )
     if all_chat_ids:
