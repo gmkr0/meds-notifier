@@ -8,6 +8,10 @@
     {
       "name": "Levetiracetam",
       "dose": "2250 mg"
+    },
+    {
+      "name": "Potassium Bromide",
+      "dose": "500 mg"
     }
   ],
   "timezone": "America/New_York",
