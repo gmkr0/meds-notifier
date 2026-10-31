@@ -7,7 +7,7 @@ Serverless Telegram bot on AWS that reminds subscribers to give a dog its medica
 - **Infrastructure**: Terraform (AWS provider)
 - **Runtime**: Python 3.12 (AWS Lambda)
 - **Messaging**: Telegram Bot API (via `urllib.request` — no external deps)
-- **State**: DynamoDB (confirmation tracking + subscriber list)
+- **State**: DynamoDB (confirmation tracking + subscriber list + permanent dose history)
 - **Scheduler**: Amazon EventBridge Scheduler
 - **Secrets**: AWS SSM Parameter Store (Telegram bot token, SecureString)
 
@@ -37,6 +37,7 @@ Serverless Telegram bot on AWS that reminds subscribers to give a dog its medica
 │   └── telegram.py        # Telegram API helper (sendMessage, broadcast, callback)
 ├── tests/
 │   ├── conftest.py        # Pytest fixtures (moto mocks, env setup)
+│   ├── test_history.py
 │   ├── test_notifier.py
 │   ├── test_reminder.py
 │   └── test_webhook.py
@@ -53,6 +54,7 @@ Serverless Telegram bot on AWS that reminds subscribers to give a dog its medica
    - Reads medication config from `src/config.json` (path via `CONFIG_PATH` env var)
    - Determines current hour (in configured timezone) to build confirmation key
    - Writes a pending confirmation record to DynamoDB with 24h TTL
+   - Writes a `pending` dose record to the history table (snapshot of medications + doses)
    - Sends message with inline "Done" button to all subscribers
 
 2. **lambda_reminder** — triggered by EventBridge cron (1 minute offset, every N minutes)
@@ -62,7 +64,8 @@ Serverless Telegram bot on AWS that reminds subscribers to give a dog its medica
 3. **lambda_webhook** — API Gateway v2 POST endpoint (Telegram webhook)
    - Validates `X-Telegram-Bot-Api-Secret-Token` header against `WEBHOOK_SECRET` env var
    - `/start` → subscribes user and sends welcome message with command list
-   - `/done` or `/administered` → scans DynamoDB for all pending confirmations, marks all as done, broadcasts to all
+   - `/done` or `/administered` → scans DynamoDB for all pending confirmations, marks all as done, stamps each dose `given` in the history table (who, when, past-due flag), broadcasts to all
+   - `/history [n]` → lists the last n doses (default 10, max 50) from the history table, newest first, with ✅ given / ⚠️ given past due / ⏳ pending (<24h) / ❌ missed
    - `/subscribe` → adds chat_id to `med_tracker_subscribers`
    - `/unsubscribe` → removes chat_id from subscribers
    - Inline button callback (`data="done"`) → same as `/done`, with callback acknowledgement
@@ -78,6 +81,13 @@ Serverless Telegram bot on AWS that reminds subscribers to give a dog its medica
 | PK (chat_id) | name | subscribed_at |
 |---------------|------|---------------|
 | 123456789 | John | timestamp |
+
+**med_tracker_history** (permanent — no TTL, point-in-time recovery, `prevent_destroy`)
+| PK (dog_name) | SK (schedule_key) | status | scheduled_at | medications | confirmed_by | confirmed_by_name | confirmed_at | past_due |
+|---------------|-------------------|--------|--------------|-------------|--------------|-------------------|--------------|----------|
+| `Shelsi` | `2024-01-15_11` | `pending`/`given` | timestamp | list of {name, dose} | chat_id | John | timestamp | bool |
+
+One item per scheduled dose. `schedule_key` sorts chronologically, so `dynamo.get_history(dog_name, limit, start, end)` is a single Query (`start`/`end` are key prefixes like `2026-10`). Medications are snapshotted at scheduling time so later config changes do not rewrite history.
 
 ### Schedule Key Format
 
@@ -101,7 +111,7 @@ Serverless Telegram bot on AWS that reminds subscribers to give a dog its medica
 - `aws_lambda_function` × 3 (notifier, reminder, webhook) via `infra/modules/lambda/`
 - `random_password` for webhook secret (auto-generated, passed to webhook Lambda)
 - `aws_iam_role` + shared policy for Lambda (DynamoDB read/write, SSM read, CloudWatch Logs)
-- `aws_dynamodb_table` × 2 (confirmations with TTL, subscribers)
+- `aws_dynamodb_table` × 3 (confirmations with TTL, subscribers, history with PITR + prevent_destroy)
 - `aws_scheduler_schedule` × 2 (notifier cron, reminder cron with 1-min offset)
 - `aws_apigatewayv2_api` + integration + route (`POST /webhook`) with auto-deploy stage + throttling
 - `aws_ssm_parameter` for Telegram bot token (SecureString)
@@ -152,6 +162,6 @@ just register-webhook   # Register Telegram webhook URL + secret with bot API
 
 - Python code follows standard Python style (PEP 8)
 - Terraform uses module-based organization under `infra/modules/`
-- Environment variables passed to Lambdas: `TABLE_CONFIRMATIONS`, `TABLE_SUBSCRIBERS`, `SSM_BOT_TOKEN_PARAM`, `CONFIG_PATH`, `ENVIRONMENT`, `WEBHOOK_SECRET` (webhook only)
+- Environment variables passed to Lambdas: `TABLE_CONFIRMATIONS`, `TABLE_SUBSCRIBERS`, `TABLE_HISTORY`, `SSM_BOT_TOKEN_PARAM`, `CONFIG_PATH`, `ENVIRONMENT`, `WEBHOOK_SECRET` (webhook only)
 - Lambda handler entry points: `handler.lambda_handler(event, context)`
 - DynamoDB client and SSM client are lazy-initialized and cached at module level

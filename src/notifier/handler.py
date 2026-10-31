@@ -22,6 +22,9 @@ def lambda_handler(event, context):
     now = datetime.now(tz)
     key = dynamo.build_schedule_key(now.hour, now.date())
     dynamo.put_pending_confirmation(key)
+    dynamo.record_scheduled_dose(
+        dog_name, key, CONFIG["medications"], scheduled_at=int(now.timestamp())
+    )
 
     subscribers = dynamo.get_all_subscribers()
     chat_ids = [int(s["chat_id"]["N"]) for s in subscribers]

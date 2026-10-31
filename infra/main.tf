@@ -33,6 +33,7 @@ locals {
   lambda_env_common = {
     TABLE_CONFIRMATIONS  = aws_dynamodb_table.confirmations.name
     TABLE_SUBSCRIBERS    = aws_dynamodb_table.subscribers.name
+    TABLE_HISTORY        = aws_dynamodb_table.history.name
     SSM_BOT_TOKEN_PARAM  = aws_ssm_parameter.bot_token.name
     ENVIRONMENT          = var.environment
   }
@@ -88,6 +89,34 @@ resource "aws_dynamodb_table" "subscribers" {
   }
 }
 
+# Permanent per-dose administration history (no TTL).
+# PK dog_name, SK schedule_key ("YYYY-MM-DD_HH") so a Query returns doses in
+# chronological order.
+resource "aws_dynamodb_table" "history" {
+  name         = "${var.project_name}-history-${var.environment}"
+  billing_mode = "PAY_PER_REQUEST"
+  hash_key     = "dog_name"
+  range_key    = "schedule_key"
+
+  attribute {
+    name = "dog_name"
+    type = "S"
+  }
+
+  attribute {
+    name = "schedule_key"
+    type = "S"
+  }
+
+  point_in_time_recovery {
+    enabled = true
+  }
+
+  lifecycle {
+    prevent_destroy = true
+  }
+}
+
 # =============================================================================
 # IAM Policy — shared DynamoDB + SSM access for all Lambdas
 # =============================================================================
@@ -102,10 +131,12 @@ data "aws_iam_policy_document" "lambda_shared" {
       "dynamodb:UpdateItem",
       "dynamodb:DeleteItem",
       "dynamodb:Scan",
+      "dynamodb:Query",
     ]
     resources = [
       aws_dynamodb_table.confirmations.arn,
       aws_dynamodb_table.subscribers.arn,
+      aws_dynamodb_table.history.arn,
     ]
   }
 

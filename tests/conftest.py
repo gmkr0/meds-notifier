@@ -6,6 +6,7 @@ from moto import mock_aws
 # Set env vars before any shared module imports
 os.environ.setdefault("TABLE_CONFIRMATIONS", "test-confirmations")
 os.environ.setdefault("TABLE_SUBSCRIBERS", "test-subscribers")
+os.environ.setdefault("TABLE_HISTORY", "test-history")
 os.environ.setdefault("SSM_BOT_TOKEN_PARAM", "/test/bot-token")
 os.environ.setdefault("AWS_DEFAULT_REGION", "us-east-1")
 os.environ.setdefault("AWS_ACCESS_KEY_ID", "testing")
@@ -49,6 +50,19 @@ def aws(request):
             TableName=os.environ["TABLE_SUBSCRIBERS"],
             KeySchema=[{"AttributeName": "chat_id", "KeyType": "HASH"}],
             AttributeDefinitions=[{"AttributeName": "chat_id", "AttributeType": "N"}],
+            BillingMode="PAY_PER_REQUEST",
+        )
+
+        ddb.create_table(
+            TableName=os.environ["TABLE_HISTORY"],
+            KeySchema=[
+                {"AttributeName": "dog_name", "KeyType": "HASH"},
+                {"AttributeName": "schedule_key", "KeyType": "RANGE"},
+            ],
+            AttributeDefinitions=[
+                {"AttributeName": "dog_name", "AttributeType": "S"},
+                {"AttributeName": "schedule_key", "AttributeType": "S"},
+            ],
             BillingMode="PAY_PER_REQUEST",
         )
 

@@ -33,6 +33,11 @@ output "subscribers_table_name" {
   value       = aws_dynamodb_table.subscribers.name
 }
 
+output "history_table_name" {
+  description = "DynamoDB medication administration history table name"
+  value       = aws_dynamodb_table.history.name
+}
+
 output "ssm_bot_token_param" {
   description = "SSM parameter name for the Telegram bot token"
   value       = aws_ssm_parameter.bot_token.name
