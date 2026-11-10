@@ -296,6 +296,7 @@ resource "aws_iam_role_policy" "scheduler_invoke" {
 resource "aws_scheduler_schedule" "notifier" {
   name       = "${local.prefix}-notifier"
   group_name = "default"
+  state      = "DISABLED"
 
   schedule_expression          = var.notifier_schedule_cron
   schedule_expression_timezone = var.schedule_timezone
